@@ -97,15 +97,10 @@
     "O que deseja para o amanhã?"
   ];
 
-  // ================================================================
-  // CONFIGURACAO: cole aqui a URL do seu Google Apps Script
-  // ================================================================
   var GAS_URL = 'https://script.google.com/macros/s/AKfycbxmjMNcbvb-XPzvOg0ubNRXcRXYOe5He3Xl6OCbVXzNK9N1B-vULZYC4V7uYIG1GWdlKg/exec';
-  // ================================================================
 
-  // ID fixo baseado na URL — igual para qualquer pessoa que abrir o mesmo link
-  var CADERNO_ID = (function() {
-    var s = (window.location.hostname + window.location.pathname).replace(/[^a-z0-9]/gi, '_').toLowerCase();
+  var CADERNO_ID = (function(){
+    var s = (window.location.hostname + window.location.pathname).replace(/[^a-z0-9]/gi,'_').toLowerCase();
     return 'caderno_' + s;
   })();
 
@@ -113,29 +108,21 @@
 
   async function loadFromServer() {
     try {
-      var controller = new AbortController();
-      var tid = setTimeout(function(){ controller.abort(); }, 5000);
-      var resp = await fetch(GAS_URL + '?action=get&id=' + CADERNO_ID, { signal: controller.signal });
-      clearTimeout(tid);
+      var fetchPromise = fetch(GAS_URL + '?action=get&id=' + CADERNO_ID);
+      var timeoutPromise = new Promise(function(_,rej){ setTimeout(function(){ rej(new Error('timeout')); }, 5000); });
+      var resp = await Promise.race([fetchPromise, timeoutPromise]);
       if (resp.ok) {
         var remote = await resp.json();
-        if (remote && typeof remote.done1 !== 'undefined') {
-          data = remote;
-        }
+        if (remote && typeof remote.done1 !== 'undefined') { data = remote; }
       }
     } catch(e) {}
-    // fallback: localStorage local
     var local = JSON.parse(localStorage.getItem('caderno_v4') || 'null');
-    if (local && !data.done1 && !data.done2) {
-      data = local;
-    }
+    if (local && !data.done1 && !data.done2) { data = local; }
   }
 
   const save = function() {
     localStorage.setItem('caderno_v4', JSON.stringify(data));
-    try {
-      fetch(GAS_URL + '?action=set&id=' + CADERNO_ID + '&data=' + encodeURIComponent(JSON.stringify(data)));
-    } catch(e) {}
+    fetch(GAS_URL + '?action=set&id=' + CADERNO_ID + '&data=' + encodeURIComponent(JSON.stringify(data))).catch(function(){});
   };
   const app = document.getElementById("app");
   const bic = document.getElementById("bic");
@@ -222,10 +209,7 @@
   window.resetAll = function() {
     if(confirm('Resetar o caderno?')){
       localStorage.removeItem('caderno_v4');
-      try {
-        var emptyData = JSON.stringify({done1:false,done2:false,p1:[],p2:[]});
-        fetch(GAS_URL + '?action=set&id=' + CADERNO_ID + '&data=' + encodeURIComponent(emptyData));
-      } catch(e) {}
+      fetch(GAS_URL + '?action=set&id=' + CADERNO_ID + '&data=' + encodeURIComponent(JSON.stringify({done1:false,done2:false,p1:[],p2:[]}))).catch(function(){});
       location.reload();
     }
   };
@@ -310,22 +294,17 @@
     } else {
       data.done2=true;
       save();
-      // Monta resumo das respostas para enviar ao Google Forms (voce recebe por email)
-      var linhas = [];
-      linhas.push('ID do caderno: ' + CADERNO_ID);
-      linhas.push('');
+      var linhas = ['ID: ' + CADERNO_ID, ''];
       QUESTIONS.forEach(function(q,i){
         linhas.push((i+1)+'. '+q);
-        linhas.push('  Pessoa 1: '+(data.p1[i]||'—'));
-        linhas.push('  Pessoa 2: '+(data.p2[i]||'—'));
+        linhas.push('  P1: '+(data.p1[i]||'—'));
+        linhas.push('  P2: '+(data.p2[i]||'—'));
       });
-      var texto = linhas.join('
-');
-      var body = 'entry.1196602189=' + encodeURIComponent(texto) + '&submit=Submit';
+      var corpo = linhas.join('\n');
       fetch(FORM_URL, {
-        method: 'POST', mode: 'no-cors',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: body
+        method:'POST', mode:'no-cors',
+        headers:{'Content-Type':'application/x-www-form-urlencoded'},
+        body:'entry.1196602189='+encodeURIComponent(corpo)+'&submit=Submit'
       }).catch(function(){});
       showFinish();
     }
