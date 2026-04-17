@@ -103,22 +103,20 @@
   var GAS_URL = 'https://script.google.com/macros/s/AKfycbxmjMNcbvb-XPzvOg0ubNRXcRXYOe5He3Xl6OCbVXzNK9N1B-vULZYC4V7uYIG1GWdlKg/exec';
   // ================================================================
 
-  // ID unico do caderno — gerado uma vez e guardado no localStorage
-  function getCadernoId() {
-    var id = localStorage.getItem('caderno_id_v4');
-    if (!id) {
-      id = Math.random().toString(36).slice(2,10) + Math.random().toString(36).slice(2,10);
-      localStorage.setItem('caderno_id_v4', id);
-    }
-    return id;
-  }
-  var CADERNO_ID = getCadernoId();
+  // ID fixo baseado na URL — igual para qualquer pessoa que abrir o mesmo link
+  var CADERNO_ID = (function() {
+    var s = (window.location.hostname + window.location.pathname).replace(/[^a-z0-9]/gi, '_').toLowerCase();
+    return 'caderno_' + s;
+  })();
 
   let data = { done1:false, done2:false, p1:[], p2:[] };
 
   async function loadFromServer() {
     try {
-      var resp = await fetch(GAS_URL + '?action=get&id=' + CADERNO_ID);
+      var controller = new AbortController();
+      var tid = setTimeout(function(){ controller.abort(); }, 5000);
+      var resp = await fetch(GAS_URL + '?action=get&id=' + CADERNO_ID, { signal: controller.signal });
+      clearTimeout(tid);
       if (resp.ok) {
         var remote = await resp.json();
         if (remote && typeof remote.done1 !== 'undefined') {
@@ -224,7 +222,6 @@
   window.resetAll = function() {
     if(confirm('Resetar o caderno?')){
       localStorage.removeItem('caderno_v4');
-      localStorage.removeItem('caderno_id_v4');
       try {
         var emptyData = JSON.stringify({done1:false,done2:false,p1:[],p2:[]});
         fetch(GAS_URL + '?action=set&id=' + CADERNO_ID + '&data=' + encodeURIComponent(emptyData));
