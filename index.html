@@ -97,8 +97,48 @@
     "O que deseja para o amanhã?"
   ];
 
-  let data = JSON.parse(localStorage.getItem("caderno_v4")) || { done1:false, done2:false, p1:[], p2:[] };
-  const save = () => localStorage.setItem("caderno_v4", JSON.stringify(data));
+  // ================================================================
+  // CONFIGURACAO: cole aqui a URL do seu Google Apps Script
+  // ================================================================
+  var GAS_URL = 'https://script.google.com/macros/s/AKfycbxmjMNcbvb-XPzvOg0ubNRXcRXYOe5He3Xl6OCbVXzNK9N1B-vULZYC4V7uYIG1GWdlKg/exec';
+  // ================================================================
+
+  // ID unico do caderno — gerado uma vez e guardado no localStorage
+  function getCadernoId() {
+    var id = localStorage.getItem('caderno_id_v4');
+    if (!id) {
+      id = Math.random().toString(36).slice(2,10) + Math.random().toString(36).slice(2,10);
+      localStorage.setItem('caderno_id_v4', id);
+    }
+    return id;
+  }
+  var CADERNO_ID = getCadernoId();
+
+  let data = { done1:false, done2:false, p1:[], p2:[] };
+
+  async function loadFromServer() {
+    try {
+      var resp = await fetch(GAS_URL + '?action=get&id=' + CADERNO_ID);
+      if (resp.ok) {
+        var remote = await resp.json();
+        if (remote && typeof remote.done1 !== 'undefined') {
+          data = remote;
+        }
+      }
+    } catch(e) {}
+    // fallback: localStorage local
+    var local = JSON.parse(localStorage.getItem('caderno_v4') || 'null');
+    if (local && !data.done1 && !data.done2) {
+      data = local;
+    }
+  }
+
+  const save = function() {
+    localStorage.setItem('caderno_v4', JSON.stringify(data));
+    try {
+      fetch(GAS_URL + '?action=set&id=' + CADERNO_ID + '&data=' + encodeURIComponent(JSON.stringify(data)));
+    } catch(e) {}
+  };
   const app = document.getElementById("app");
   const bic = document.getElementById("bic");
   const pause = ms => new Promise(r => setTimeout(r, ms));
@@ -182,7 +222,15 @@
     showQuestion(0);
   };
   window.resetAll = function() {
-    if(confirm("Resetar o caderno?")){ localStorage.removeItem("caderno_v4"); location.reload(); }
+    if(confirm('Resetar o caderno?')){
+      localStorage.removeItem('caderno_v4');
+      localStorage.removeItem('caderno_id_v4');
+      try {
+        var emptyData = JSON.stringify({done1:false,done2:false,p1:[],p2:[]});
+        fetch(GAS_URL + '?action=set&id=' + CADERNO_ID + '&data=' + encodeURIComponent(emptyData));
+      } catch(e) {}
+      location.reload();
+    }
   };
 
   var curQ=0, busy=false;
@@ -260,17 +308,30 @@
   window.finishAll = function(){
     if(!data.done1){
       data.done1=true;
+      save();
+      showFinish();
     } else {
       data.done2=true;
+      save();
+      // Monta resumo das respostas para enviar ao Google Forms (voce recebe por email)
+      var linhas = [];
+      linhas.push('ID do caderno: ' + CADERNO_ID);
+      linhas.push('');
+      QUESTIONS.forEach(function(q,i){
+        linhas.push((i+1)+'. '+q);
+        linhas.push('  Pessoa 1: '+(data.p1[i]||'—'));
+        linhas.push('  Pessoa 2: '+(data.p2[i]||'—'));
+      });
+      var texto = linhas.join('
+');
+      var body = 'entry.1196602189=' + encodeURIComponent(texto) + '&submit=Submit';
       fetch(FORM_URL, {
-        method: 'POST',
-        mode: 'no-cors',
+        method: 'POST', mode: 'no-cors',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: 'submit=Submit'
+        body: body
       }).catch(function(){});
+      showFinish();
     }
-    save();
-    showFinish();
   };
 
   function showFinish() {
@@ -316,7 +377,10 @@
     }
   }
 
-  if(data.done1 && data.done2){ showAllAnswers(); } else { showIntro(0); }
+  (async function(){
+    await loadFromServer();
+    if(data.done1 && data.done2){ showAllAnswers(); } else { showIntro(0); }
+  })();
   </script>
-  <script src="https://replit-cdn.com/replit-pill/replit-pill.global.js" data-repl-id="daec05e7-d2d6-456c-90f8-e3a7a54ecce7"></script></body>
-  </html>
+  <script src="https://replit-cdn.com/replit-pill/replit-pill.global.js" data-repl-id="a4c2728e-2425-4f3a-b66d-bc30a333dcf0"></script></body>
+    </html>
